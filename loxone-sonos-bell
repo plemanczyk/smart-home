@@ -1,0 +1,198 @@
+#define START_volume  10
+#define EVENT_volume  55
+
+#define mySONOS "IP ADDRESS"
+#define myBELL  "https://www.soundjay.com/door/doorbell-1.mp3"
+// Add a global variable to track whether the doorbell has been played
+int DOORBELL_PLAYED = 0;
+
+char  xSTREAM[2048];
+char  BUFFER[16384];
+char  LINE[1024];
+char  PATH[1024];
+char  SOAP[2048];
+char  BODY[4096];
+char  URI[1024];
+char  META[2048];
+int   HTTP_Statuscode;
+int   ON;
+
+void SendRequest()
+{
+  sprintf(BUFFER, "POST %s HTTP/1.1\r\nHOST: %s\r\nCONTENT-LENGTH: %d\r\nCONTENT-TYPE: text/xml; charset=UTF-8\r\nCONNECTION: close\r\n%s\r\n%s", PATH, mySONOS, strlen(BODY), SOAP, BODY);
+
+  int BUFFER_size = strlen(BUFFER);
+  int LINE_size = 0;
+  HTTP_Statuscode = 400;
+
+  sprintf(xSTREAM, "/dev/tcp/%s/1400/", mySONOS);
+  STREAM* Connection = stream_create(xSTREAM, 0, 0);
+
+  if (Connection == NULL)
+  {
+    ON = -1;
+  }
+  else
+  {
+    stream_write(Connection, BUFFER, BUFFER_size);
+    stream_flush(Connection);
+    sprintf(BUFFER, "");
+    BUFFER_size = 0;
+
+    do
+    {
+      LINE_size = stream_read(Connection, LINE, sizeof(LINE), 2000);
+
+      if ((BUFFER_size + LINE_size) < (sizeof(BUFFER) - 8))
+      {
+        strncpy(((char *)BUFFER + BUFFER_size), LINE, LINE_size);
+        BUFFER_size = strlen(BUFFER);
+      }
+      else
+      {
+        break;
+      }
+    } while (LINE_size > 0);
+
+    stream_close(Connection);
+
+    if (BUFFER_size > 0)
+    {
+      strncpy(LINE, BUFFER, 12);
+      sprintf(SOAP, strstrskip(LINE, "HTTP/1.1"));
+      HTTP_Statuscode = batoi(SOAP);
+    }
+  }
+  LINE_size = 0;
+  BUFFER_size = 0;
+}
+
+void getON()
+{
+  sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTransportInfo xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID></u:GetTransportInfo></s:Body></s:Envelope>");
+  SendRequest();
+
+  if (HTTP_Statuscode == 200)
+  {
+    strcpy(BODY, getxmlvalue(BUFFER, 0, "CurrentTransportState"));
+    ON = (0 - strcmp(BODY, "STOPPED"));
+  }
+  else
+  {
+    ON = -1;
+  }
+}
+
+void getMUSIC()
+{
+  sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetMediaInfo xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID></u:GetMediaInfo></s:Body></s:Envelope>");
+  SendRequest();
+
+  if (HTTP_Statuscode == 200)
+  {
+    sprintf(URI, getxmlvalue(BUFFER, 0, "CurrentURI"));
+    sprintf(META, getxmlvalue(BUFFER, 0, "CurrentURIMetaData"));
+  }
+  else
+  {
+    sprintf(URI, "x");
+    sprintf(META, "x");
+  }
+}
+
+void setVolume(int VOL)
+{
+  sprintf(PATH, "/MediaRenderer/RenderingControl/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>%d</DesiredVolume></u:SetVolume></s:Body></s:Envelope>", VOL);
+  SendRequest();
+}
+
+void setPlay()
+{
+  sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:AVTransport:1#Play\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:Play xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play></s:Body></s:Envelope>");
+  SendRequest();
+}
+
+void setStop()
+{
+  sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:AVTransport:1#Stop\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:Stop xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID></u:Stop></s:Body></s:Envelope>");
+  SendRequest();
+}
+
+void setMute(int MUTE)
+{
+  sprintf(PATH, "/MediaRenderer/RenderingControl/Control");
+  sprintf(SOAP, "soapaction: \"urn:schemas-upnp-org:service:RenderingControl:1#SetMute\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetMute xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>%d</DesiredMute></u:SetMute></s:Body></s:Envelope>", MUTE);
+  SendRequest();
+}
+
+void setDoorbell()
+{
+  sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+  sprintf(SOAP, "SOAPACTION: \"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"\r\n");
+  sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><CurrentURI>x-rincon-mp3radio://%s</CurrentURI><CurrentURIMetaData></CurrentURIMetaData></u:SetAVTransportURI></s:Body></s:Envelope>", myBELL);
+  SendRequest();
+}
+
+void setLastStation()
+{
+  if (strlen(URI) > 3)
+  {
+    sprintf(PATH, "/MediaRenderer/AVTransport/Control");
+    sprintf(SOAP, "SOAPACTION: \"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"\r\n");
+    sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><CurrentURI>%s</CurrentURI><CurrentURIMetaData>%s</CurrentURIMetaData></u:SetAVTransportURI></s:Body></s:Envelope>", URI, META);
+    SendRequest();
+  }
+}
+
+
+// --- Sequence: Set MP3 stream -------------------------------------------------------------
+// --- Sequence: Set MP3 stream -------------------------------------------------------------
+void setBELL() 
+{ 
+  if (DOORBELL_PLAYED == 0) {
+    sprintf(PATH, "/MediaRenderer/AVTransport/Control");           
+    sprintf(SOAP, "SOAPACTION: \"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"\r\n");
+    sprintf(BODY, "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><CurrentURI>%s</CurrentURI><CurrentURIMetaData></CurrentURIMetaData></u:SetAVTransportURI></s:Body></s:Envelope>", myBELL);
+    Senden();
+    DOORBELL_PLAYED = 1;
+    sleeps(5);  // Adjust the duration as needed
+    DOORBELL_PLAYED = 0;  // Reset the flag
+  }
+}
+
+while (true)
+{
+  if (getinput(0) > 0)
+  {
+    setVolume(0);
+    getON();
+    getMUSIC();
+    setDoorbell();
+    setVolume(EVENT_volume);
+    setMute(0);
+    setPlay();
+    sleeps(5);
+    setVolume(START_volume);
+    setLastStation();
+    if (ON > 0)
+    {
+      setPlay();
+    }
+    else
+    {
+      setStop();
+    }
+  }
+  sleep(100);
+}
